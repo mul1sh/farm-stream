@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -79,6 +81,8 @@ func printUsage() {
   --port=N, -p N      HTTP server port (default: 8888)
   --path=DIR, -f DIR  Download directory (default: temp dir)
   --connections=N     Max peer connections (default: 100)
+  --player=NAME       Player to launch (vlc, mpv, iina, or auto)
+  --no-player         Don't auto-launch a player
   --quiet, -q         Minimal output
 
 %sExamples:%s
@@ -99,6 +103,8 @@ func handleStream(uri string, args []string) {
 	downloadDir := filepath.Join(os.TempDir(), "farm-stream")
 	maxConns := 100
 	port := 8888
+	player := "auto"
+	noPlayer := false
 	quiet := false
 
 	for _, arg := range args {
@@ -125,6 +131,10 @@ func handleStream(uri string, args []string) {
 			}
 		case strings.HasPrefix(arg, "--connections="):
 			fmt.Sscanf(strings.TrimPrefix(arg, "--connections="), "%d", &maxConns)
+		case strings.HasPrefix(arg, "--player="):
+			player = strings.TrimPrefix(arg, "--player=")
+		case arg == "--no-player":
+			noPlayer = true
 		case arg == "--quiet" || arg == "-q":
 			quiet = true
 		}
@@ -220,6 +230,11 @@ func handleStream(uri string, args []string) {
 		fmt.Printf("%s   Stats:%s  %s%s.json%s\n", Dim, Reset, Dim, srv.URL(), Reset)
 		fmt.Printf("%s   M3U:%s    %s%s.m3u%s\n", Dim, Reset, Dim, srv.URL(), Reset)
 		fmt.Printf("%s   Status:%s %s%sstatus%s\n\n", Dim, Reset, Dim, srv.URL(), Reset)
+	}
+
+	// Launch media player
+	if !noPlayer {
+		launchPlayer(player, srv.URL(), quiet)
 	}
 
 	// Stats loop
@@ -360,4 +375,117 @@ func handleSeed(args []string) {
 			return
 		}
 	}
+}
+
+// ── Player Launch ───────────────────────────────────────────────────────────
+
+// playerInfo describes how to launch a media player.
+type playerInfo struct {
+	name    string
+	cmdArgs func(url string) (string, []string) // returns command and args
+	check   func() bool                          // returns true if available
+}
+
+// launchPlayer auto-detects and launches a media player with the stream URL.
+func launchPlayer(playerName, streamURL string, quiet bool) {
+	players := []playerInfo{
+		{
+			name: "vlc",
+			cmdArgs: func(url string) (string, []string) {
+				if runtime.GOOS == "darwin" {
+					return "open", []string{"-a", "VLC", url}
+				}
+				return "vlc", []string{url}
+			},
+			check: func() bool {
+				if runtime.GOOS == "darwin" {
+					_, err := os.Stat("/Applications/VLC.app")
+					return err == nil
+				}
+				_, err := exec.LookPath("vlc")
+				return err == nil
+			},
+		},
+		{
+			name: "mpv",
+			cmdArgs: func(url string) (string, []string) {
+				return "mpv", []string{url}
+			},
+			check: func() bool {
+				_, err := exec.LookPath("mpv")
+				return err == nil
+			},
+		},
+		{
+			name: "iina",
+			cmdArgs: func(url string) (string, []string) {
+				if runtime.GOOS == "darwin" {
+					return "open", []string{"-a", "IINA", url}
+				}
+				return "iina", []string{"--url=" + url}
+			},
+			check: func() bool {
+				if runtime.GOOS == "darwin" {
+					_, err := os.Stat("/Applications/IINA.app")
+					return err == nil
+				}
+				_, err := exec.LookPath("iina")
+				return err == nil
+			},
+		},
+	}
+
+	var target *playerInfo
+
+	if playerName == "auto" {
+		// Auto-detect: try VLC → mpv → IINA
+		for i := range players {
+			if players[i].check() {
+				target = &players[i]
+				break
+			}
+		}
+		if target == nil {
+			if !quiet {
+				fmt.Printf("%s⚠ No media player found (vlc, mpv, iina). Open %s manually.%s\n", Yellow, streamURL, Reset)
+			}
+			return
+		}
+	} else {
+		// Specific player requested
+		for i := range players {
+			if players[i].name == playerName {
+				target = &players[i]
+				break
+			}
+		}
+		if target == nil {
+			fmt.Printf("%s✗ Unknown player: %s (supported: vlc, mpv, iina)%s\n", Red, playerName, Reset)
+			return
+		}
+		if !target.check() {
+			fmt.Printf("%s✗ %s not found on this system%s\n", Red, target.name, Reset)
+			return
+		}
+	}
+
+	// Launch player in background
+	cmd, args := target.cmdArgs(streamURL)
+	proc := exec.Command(cmd, args...)
+	proc.Stdout = nil
+	proc.Stderr = nil
+
+	if err := proc.Start(); err != nil {
+		if !quiet {
+			fmt.Printf("%s⚠ Could not launch %s: %v%s\n", Yellow, target.name, err, Reset)
+		}
+		return
+	}
+
+	if !quiet {
+		fmt.Printf("%s🎬 Launched %s%s%s (pid %d)\n", Green, Bold, target.name, Reset, proc.Process.Pid)
+	}
+
+	// Don't wait for player — let it run independently
+	go proc.Wait()
 }
