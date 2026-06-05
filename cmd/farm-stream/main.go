@@ -239,8 +239,9 @@ func handleStream(uri string, args []string) {
 	}
 
 	// Launch media player
+	var playerDone <-chan struct{}
 	if !noPlayer {
-		launchPlayer(player, srv.URL(), quiet)
+		playerDone = launchPlayer(player, srv.URL(), quiet)
 	}
 
 	// Stats loop
@@ -266,6 +267,15 @@ func handleStream(uri string, args []string) {
 					stats.PiecesComplete, stats.PiecesTotal,
 				)
 			}
+		case <-playerDone:
+			fmt.Printf("\n\n%s⏏ Player closed. Shutting down...%s\n", Yellow, Reset)
+			stats := e.Stats()
+			fmt.Printf("  Downloaded: %s  Uploaded: %s\n",
+				engine.FormatBytes(stats.Downloaded), engine.FormatBytes(stats.Uploaded))
+			srv.Close()
+			e.Close(false)
+			fmt.Printf("%s✓ Done.%s\n", BoldGreen, Reset)
+			return
 		case <-sigCh:
 			fmt.Printf("\n\n%s⏏ Shutting down...%s\n", Yellow, Reset)
 			stats := e.Stats()
@@ -403,13 +413,17 @@ type playerInfo struct {
 }
 
 // launchPlayer auto-detects and launches a media player with the stream URL.
-func launchPlayer(playerName, streamURL string, quiet bool) {
+// Returns a channel that is closed when the player process exits, or a
+// never-closing channel if no player was launched.
+func launchPlayer(playerName, streamURL string, quiet bool) <-chan struct{} {
+	neverDone := make(chan struct{})
+
 	players := []playerInfo{
 		{
 			name: "vlc",
 			cmdArgs: func(url string) (string, []string) {
 				if runtime.GOOS == "darwin" {
-					return "open", []string{"-a", "VLC", url}
+					return "open", []string{"-W", "-a", "VLC", url}
 				}
 				return "vlc", []string{url}
 			},
@@ -436,7 +450,7 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 			name: "iina",
 			cmdArgs: func(url string) (string, []string) {
 				if runtime.GOOS == "darwin" {
-					return "open", []string{"-a", "IINA", url}
+					return "open", []string{"-W", "-a", "IINA", url}
 				}
 				return "iina", []string{"--url=" + url}
 			},
@@ -454,7 +468,6 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 	var target *playerInfo
 
 	if playerName == "auto" {
-		// Auto-detect: try VLC → mpv → IINA
 		for i := range players {
 			if players[i].check() {
 				target = &players[i]
@@ -465,10 +478,9 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 			if !quiet {
 				fmt.Printf("%s⚠ No media player found (vlc, mpv, iina). Open %s manually.%s\n", Yellow, streamURL, Reset)
 			}
-			return
+			return neverDone
 		}
 	} else {
-		// Specific player requested
 		for i := range players {
 			if players[i].name == playerName {
 				target = &players[i]
@@ -477,15 +489,15 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 		}
 		if target == nil {
 			fmt.Printf("%s✗ Unknown player: %s (supported: vlc, mpv, iina)%s\n", Red, playerName, Reset)
-			return
+			return neverDone
 		}
 		if !target.check() {
 			fmt.Printf("%s✗ %s not found on this system%s\n", Red, target.name, Reset)
-			return
+			return neverDone
 		}
 	}
 
-	// Launch player in background
+	// Launch player
 	cmd, args := target.cmdArgs(streamURL)
 	proc := exec.Command(cmd, args...)
 	proc.Stdout = nil
@@ -495,15 +507,20 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 		if !quiet {
 			fmt.Printf("%s⚠ Could not launch %s: %v%s\n", Yellow, target.name, err, Reset)
 		}
-		return
+		return neverDone
 	}
 
 	if !quiet {
-		fmt.Printf("%s🎬 Launched %s%s%s (pid %d)\n", Green, Bold, target.name, Reset, proc.Process.Pid)
+		fmt.Printf("%s🎬 Launched %s%s%s (pid %d) — closing it will stop the stream\n", Green, Bold, target.name, Reset, proc.Process.Pid)
 	}
 
-	// Don't wait for player — let it run independently
-	go proc.Wait()
+	// Wait for player exit in background, signal via channel
+	done := make(chan struct{})
+	go func() {
+		proc.Wait()
+		close(done)
+	}()
+	return done
 }
 
 // ── Instance Management ─────────────────────────────────────────────────────
