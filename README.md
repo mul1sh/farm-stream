@@ -203,24 +203,23 @@ farm-stream seed /mnt/ssd/drone-data/flight-001.torrent
 Here's what happens when you stream a video:
 
 ```bash
-$ farm-stream "magnet:?xt=urn:btih:84E0E1F4..."
+$ fstream "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969&tr=udp%3A%2F%2Ftracker.empire-js.us%3A1337&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fbig-buck-bunny.torrent"
 ```
 
 ```
 ⚡ Adding torrent...
 ⏳ Fetching torrent metadata from peers...
-✓ Torrent: Citadel.S02E05.Heirlooms.480p.x264-mSD.mkv
-▶ Streaming: Citadel.S02E05... (89.1 MB)
-  Download dir: /tmp/farm-stream
+✓ Torrent: Big Buck Bunny
+▶ Streaming: Big Buck Bunny.mp4 (263.3 MB)
+  Download dir: /var/folders/m9/m9psxqfn043357rq6l241r840000gp/T/farm-stream
 
 🌐 Server: http://192.168.100.6:8888/
    Stats:  http://192.168.100.6:8888/.json
    M3U:    http://192.168.100.6:8888/.m3u
    Status: http://192.168.100.6:8888/status
 
-🎬 Launched vlc (pid 16759)
-
-⚡ ↓ 247 KB/s  ↑ 0 B/s  peers: 1/1  clients: 1  progress: 1.5%  pieces: 16/1038
+🎬 Launched vlc (pid 21874) — closing it will stop the stream
+⚡ ↓ 19.6 MB/s  ↑ 0 B/s  peers: 16/21  clients: 1  progress: 71.8%  pieces: 747/1055
 ```
 
 **What's happening under the hood:**
@@ -230,7 +229,8 @@ $ farm-stream "magnet:?xt=urn:btih:84E0E1F4..."
 3. **HTTP server starts** — binds to port 8888 (or random if taken), serves the file with Range support
 4. **VLC launches** — auto-detected and pointed at `http://192.168.100.6:8888/`
 5. **Piece prioritization** — the engine prioritizes sequential pieces from VLC's read position for smooth playback
-6. **Stats loop** — shows download speed, peers, connected clients, and progress
+6. **Player lifecycle** — closing VLC automatically shuts down the stream and cleans up
+7. **Stats loop** — shows download speed, peers, connected clients, and progress
 
 ### Multi-Client Streaming
 
