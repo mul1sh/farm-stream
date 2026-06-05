@@ -348,7 +348,13 @@ func handleSeed(args []string) {
 	}
 
 	fmt.Printf("%s⏳ Verifying data...%s\n", Yellow, Reset)
-	<-e.WaitReady()
+	select {
+	case <-e.WaitReady():
+	case <-time.After(2 * time.Minute):
+		fmt.Printf("%s✗ Timeout: verification did not complete after 2 minutes%s\n", Red, Reset)
+		e.Close(false)
+		os.Exit(2)
+	}
 	fmt.Printf("%s✓ Verification complete. Seeding...%s\n\n", BoldGreen, Reset)
 
 	sigCh := make(chan os.Signal, 1)

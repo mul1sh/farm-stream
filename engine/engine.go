@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anacrolix/torrent"
@@ -51,6 +52,7 @@ type Engine struct {
 	Torrent      *torrent.Torrent
 	Cfg          *Config
 	ready        chan struct{}
+	readyOnce    sync.Once
 	StartTime    time.Time
 	SpeedTracker *SpeedTracker
 }
@@ -131,7 +133,7 @@ func (e *Engine) AddTorrent(uri string) error {
 	// Wait for metadata in background, then signal ready
 	go func() {
 		<-t.GotInfo()
-		close(e.ready)
+		e.readyOnce.Do(func() { close(e.ready) })
 	}()
 
 	return nil
@@ -468,7 +470,7 @@ func (e *Engine) SeedTorrent(torrentPath string) error {
 		// Mark all pieces for upload
 		t.AllowDataUpload()
 
-		close(e.ready)
+		e.readyOnce.Do(func() { close(e.ready) })
 	}()
 
 	return nil

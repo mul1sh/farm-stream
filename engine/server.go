@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,10 +176,11 @@ func (s *StreamServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Try to match by filename
+		// Try to match by filename (URL-decode for spaces/special chars)
+		decodedPath, _ := url.PathUnescape(path)
 		files := s.engine.Files()
 		for _, f := range files {
-			if "/"+f.Name == path {
+			if "/"+f.Name == decodedPath {
 				s.handleFile(w, r, f.Index)
 				return
 			}
