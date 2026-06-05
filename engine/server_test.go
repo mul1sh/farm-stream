@@ -58,6 +58,7 @@ func createTestServer(t *testing.T) (*StreamServer, func()) {
 		MaxConnections: 10,
 		NoDHT:          true,
 		Seed:           true,
+		PeerPort:       0,
 	})
 	if err != nil {
 		os.RemoveAll(tmpDir)

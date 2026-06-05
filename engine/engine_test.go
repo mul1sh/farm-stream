@@ -163,6 +163,7 @@ func TestNewEngine(t *testing.T) {
 		DownloadDir:    tmpDir,
 		MaxConnections: 50,
 		NoDHT:          true,
+		PeerPort:       0,
 	})
 	if err != nil {
 		t.Fatalf("New() error: %v", err)

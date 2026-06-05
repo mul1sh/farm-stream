@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -140,9 +141,13 @@ func handleStream(uri string, args []string) {
 		}
 	}
 
+	// Kill any existing farm-stream instance
+	killExistingInstances(quiet)
+
 	e, err := engine.New(&engine.Config{
 		DownloadDir:    downloadDir,
 		MaxConnections: maxConns,
+		PeerPort:       -1,
 	})
 	if err != nil {
 		fmt.Printf("%s✗ Engine error: %v%s\n", Red, err, Reset)
@@ -329,10 +334,14 @@ func handleSeed(args []string) {
 		}
 	}
 
+	// Kill any existing farm-stream instance
+	killExistingInstances(false)
+
 	e, err := engine.New(&engine.Config{
 		DownloadDir:    downloadDir,
 		MaxConnections: 100,
 		Seed:           true,
+		PeerPort:       -1,
 	})
 	if err != nil {
 		fmt.Printf("%s✗ Engine error: %v%s\n", Red, err, Reset)
@@ -495,4 +504,59 @@ func launchPlayer(playerName, streamURL string, quiet bool) {
 
 	// Don't wait for player — let it run independently
 	go proc.Wait()
+}
+
+// ── Instance Management ─────────────────────────────────────────────────────
+
+// killExistingInstances finds and terminates any running farm-stream processes
+// (other than ourselves) so the new instance can bind to the torrent port.
+// This prevents cryptic "address already in use" errors for non-technical users.
+func killExistingInstances(quiet bool) {
+	myPid := os.Getpid()
+
+	// Find all farm-stream processes
+	out, err := exec.Command("pgrep", "-f", "farm-stream").Output()
+	if err != nil {
+		// No existing processes found — nothing to kill
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var killed []int
+
+	for _, line := range lines {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid == myPid {
+			continue
+		}
+
+		// Send SIGTERM first (graceful)
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+
+		_ = proc.Signal(syscall.SIGTERM)
+		killed = append(killed, pid)
+	}
+
+	if len(killed) > 0 {
+		// Give processes a moment to shut down
+		time.Sleep(500 * time.Millisecond)
+
+		// Force-kill any that didn't exit
+		for _, pid := range killed {
+			proc, err := os.FindProcess(pid)
+			if err == nil {
+				_ = proc.Signal(syscall.SIGKILL)
+			}
+		}
+
+		if !quiet {
+			fmt.Printf("%s♻ Stopped previous farm-stream session (pid %v)%s\n", Yellow, killed, Reset)
+		}
+
+		// Brief pause to ensure port is fully released by the OS
+		time.Sleep(300 * time.Millisecond)
+	}
 }

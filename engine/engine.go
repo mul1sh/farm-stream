@@ -75,8 +75,13 @@ func New(config *Config) (*Engine, error) {
 	}
 
 	// Peer listening port
+	// PeerPort > 0: use that specific port
+	// PeerPort == 0: use random port (for tests / avoiding collisions)
+	// PeerPort < 0: use library default (42069)
 	if config.PeerPort > 0 {
 		cfg.SetListenAddr(fmt.Sprintf(":%d", config.PeerPort))
+	} else if config.PeerPort == 0 {
+		cfg.SetListenAddr(":0")
 	}
 
 	// DHT
