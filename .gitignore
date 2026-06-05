@@ -24,3 +24,6 @@ Thumbs.db
 
 # Temp data
 /tmp/
+
+# Specs (contains sensitive company data: drone designs, firmware, chip specs)
+/specs/
