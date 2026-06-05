@@ -98,6 +98,9 @@ func (s *StreamServer) Start() error {
 
 // URL returns the LAN-accessible URL of the server.
 func (s *StreamServer) URL() string {
+	if s.listener == nil {
+		return ""
+	}
 	addr := s.listener.Addr().(*net.TCPAddr)
 	host := s.cfg.Hostname
 	if host == "" {
@@ -108,6 +111,9 @@ func (s *StreamServer) URL() string {
 
 // Port returns the actual port the server is listening on.
 func (s *StreamServer) Port() int {
+	if s.listener == nil {
+		return 0
+	}
 	return s.listener.Addr().(*net.TCPAddr).Port
 }
 

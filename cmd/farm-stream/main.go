@@ -209,6 +209,7 @@ func handleStream(uri string, args []string) {
 		e.Close(false)
 		os.Exit(1)
 	}
+	defer selected.Reader.Close()
 
 	if !quiet {
 		fmt.Printf("%s▶ Streaming: %s%s%s (%s)\n",
