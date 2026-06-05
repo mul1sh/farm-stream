@@ -193,6 +193,33 @@ func (e *Engine) SelectFile(index int) (*SelectedFile, error) {
 	}, nil
 }
 
+// NewFileReader creates an independent reader for the file at the given index.
+// Each reader has its own seek position — safe for concurrent HTTP clients.
+// The caller is responsible for closing the returned reader.
+func (e *Engine) NewFileReader(index int) (torrent.Reader, error) {
+	<-e.ready
+
+	files := e.Torrent.Files()
+	if index < 0 || index >= len(files) {
+		return nil, fmt.Errorf("file index %d out of range [0, %d)", index, len(files))
+	}
+
+	file := files[index]
+	file.Download()
+
+	reader := file.NewReader()
+	reader.SetResponsive()
+	reader.SetReadahead(5 * 1024 * 1024)
+
+	return reader, nil
+}
+
+// FileCount returns the number of files in the torrent. Blocks until metadata is available.
+func (e *Engine) FileCount() int {
+	<-e.ready
+	return len(e.Torrent.Files())
+}
+
 // SelectLargest selects the largest file in the torrent for streaming.
 func (e *Engine) SelectLargest() (*SelectedFile, error) {
 	files := e.Files()

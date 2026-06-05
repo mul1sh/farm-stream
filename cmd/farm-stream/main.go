@@ -98,6 +98,7 @@ func handleStream(uri string, args []string) {
 	fileIndex := -1
 	downloadDir := filepath.Join(os.TempDir(), "farm-stream")
 	maxConns := 100
+	port := 8888
 	quiet := false
 
 	for _, arg := range args {
@@ -109,6 +110,12 @@ func handleStream(uri string, args []string) {
 		case strings.HasPrefix(arg, "-i"):
 			if len(arg) > 2 {
 				fmt.Sscanf(arg[2:], "%d", &fileIndex)
+			}
+		case strings.HasPrefix(arg, "--port="):
+			fmt.Sscanf(strings.TrimPrefix(arg, "--port="), "%d", &port)
+		case strings.HasPrefix(arg, "-p"):
+			if len(arg) > 2 {
+				fmt.Sscanf(arg[2:], "%d", &port)
 			}
 		case strings.HasPrefix(arg, "--path="):
 			downloadDir = strings.TrimPrefix(arg, "--path=")
@@ -196,7 +203,23 @@ func handleStream(uri string, args []string) {
 	if !quiet {
 		fmt.Printf("%s▶ Streaming: %s%s%s (%s)\n",
 			Green, Bold, selected.Name, Reset, engine.FormatBytes(selected.Length))
-		fmt.Printf("%s  Download dir: %s%s\n\n", Dim, e.Cfg.DownloadDir, Reset)
+		fmt.Printf("%s  Download dir: %s%s\n", Dim, e.Cfg.DownloadDir, Reset)
+	}
+
+	// Start HTTP server
+	srv := engine.NewStreamServer(e, &engine.ServerConfig{Port: port}, selected.Index)
+	if err := srv.Start(); err != nil {
+		fmt.Printf("%s✗ Server error: %v%s\n", Red, err, Reset)
+		e.Close(false)
+		os.Exit(1)
+	}
+	defer srv.Close()
+
+	if !quiet {
+		fmt.Printf("\n%s🌐 Server:%s %s%s%s\n", BoldCyan, Reset, Bold, srv.URL(), Reset)
+		fmt.Printf("%s   Stats:%s  %s%s.json%s\n", Dim, Reset, Dim, srv.URL(), Reset)
+		fmt.Printf("%s   M3U:%s    %s%s.m3u%s\n", Dim, Reset, Dim, srv.URL(), Reset)
+		fmt.Printf("%s   Status:%s %s%sstatus%s\n\n", Dim, Reset, Dim, srv.URL(), Reset)
 	}
 
 	// Stats loop
@@ -210,12 +233,14 @@ func handleStream(uri string, args []string) {
 		select {
 		case <-ticker.C:
 			stats := e.Stats()
+			conns := srv.ActiveConnections()
 			if !quiet {
-				fmt.Printf("\r%s⚡%s ↓ %s%s/s%s  ↑ %s%s/s%s  peers: %s%d/%d%s  progress: %s%.1f%%%s  pieces: %d/%d     ",
+				fmt.Printf("\r%s⚡%s ↓ %s%s/s%s  ↑ %s%s/s%s  peers: %s%d/%d%s  clients: %s%d%s  progress: %s%.1f%%%s  pieces: %d/%d     ",
 					Yellow, Reset,
 					BoldGreen, engine.FormatBytes(int64(stats.DownloadSpeed)), Reset,
 					Cyan, engine.FormatBytes(int64(stats.UploadSpeed)), Reset,
 					Bold, stats.ActivePeers, stats.TotalPeers, Reset,
+					Magenta, conns, Reset,
 					BoldGreen, stats.Progress*100, Reset,
 					stats.PiecesComplete, stats.PiecesTotal,
 				)
@@ -225,6 +250,8 @@ func handleStream(uri string, args []string) {
 			stats := e.Stats()
 			fmt.Printf("  Downloaded: %s  Uploaded: %s\n",
 				engine.FormatBytes(stats.Downloaded), engine.FormatBytes(stats.Uploaded))
+			fmt.Printf("  Server connections served: %d\n", srv.ActiveConnections())
+			srv.Close()
 			e.Close(false)
 			fmt.Printf("%s✓ Done.%s\n", BoldGreen, Reset)
 			return
